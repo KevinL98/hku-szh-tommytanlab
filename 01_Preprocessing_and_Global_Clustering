@@ -1,0 +1,185 @@
+
+# 01_Preprocessing_and_Global_Clustering.R
+
+# Load required libraries
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(SingleCellExperiment)
+  library(dplyr)
+  library(ggplot2)
+  library(harmony)
+  library(scDblFinder)
+  library(glmGamPoi)
+  library(patchwork)
+})
+
+
+# 1. Global Parameters Configuration
+
+# Set thresholds to ensure highly viable, single-cell capturing
+MIN_FEATURES <- 1600
+MAX_MT_PCT   <- 10
+CLUSTERING_RES <- 0.4
+SEED_NUM <- 32
+
+set.seed(SEED_NUM)
+
+
+# 2. Data Importing and Quality Control
+
+# 🌟 这里是唯一的磁盘读取步骤 (读取原始测序矩阵)
+mut_counts  <- Read10X(data.dir = "data/mut")
+ctrl_counts <- Read10X(data.dir = "data/ctrl")
+
+mut_obj  <- CreateSeuratObject(counts = mut_counts, project = "mut")
+ctrl_obj <- CreateSeuratObject(counts = ctrl_counts, project = "ctrl")
+
+# Assign groups
+mut_obj$group  <- "mut"
+ctrl_obj$group <- "ctrl"
+
+# Calculate QC metrics
+calc_qc_metrics <- function(seurat_obj) {
+  DefaultAssay(seurat_obj) <- "RNA"
+  seurat_obj[["percent.mt"]]   <- PercentageFeatureSet(seurat_obj, pattern = "^mt-")
+  seurat_obj[["percent.ribo"]] <- PercentageFeatureSet(seurat_obj, pattern = "^Rp[sl]")
+  seurat_obj$log10GenesPerUMI  <- log10(seurat_obj$nFeature_RNA) / log10(seurat_obj$nCount_RNA)
+  return(seurat_obj)
+}
+
+mut_obj  <- calc_qc_metrics(mut_obj)
+ctrl_obj <- calc_qc_metrics(ctrl_obj)
+
+# Filter low-quality cells based on predefined thresholds
+mut_filtered  <- subset(mut_obj, nFeature_RNA >= MIN_FEATURES & percent.mt < MAX_MT_PCT)
+ctrl_filtered <- subset(ctrl_obj, nFeature_RNA >= MIN_FEATURES & percent.mt < MAX_MT_PCT)
+
+
+# 3. Doublet Detection and Removal (scDblFinder)
+
+remove_doublets <- function(seurat_obj) {
+  sce <- as.SingleCellExperiment(seurat_obj)
+  sce <- scDblFinder(sce)
+  seurat_obj$Doublet_Status <- sce$scDblFinder.class
+  seurat_obj_singlet <- subset(seurat_obj, Doublet_Status == "singlet")
+  return(seurat_obj_singlet)
+}
+
+mut_singlet  <- remove_doublets(mut_filtered)
+ctrl_singlet <- remove_doublets(ctrl_filtered)
+
+
+# 4. Merging and Sex-Gene Bias Regression
+
+combined <- merge(ctrl_singlet, y = mut_singlet, add.cell.ids = c("ctrl", "mut"))
+DefaultAssay(combined) <- "RNA"
+combined <- NormalizeData(combined)
+
+# Evaluate sex-specific scores to regress out sex-driven technical variations
+female_genes <- c("Xist", "Tsix")
+male_genes   <- c("Ddx3y", "Eif2s3y", "Uty", "Kdm5d")
+
+combined <- AddModuleScore(combined, features = list(female_genes), name = "Female_Score")
+combined <- AddModuleScore(combined, features = list(male_genes), name = "Male_Score")
+combined$sex_score <- scale(combined$Male_Score1 - combined$Female_Score1)[,1]
+
+# SCTransform normalization regressing out mitochondrial and sex covariates
+combined <- SCTransform(
+  combined,
+  method = "glmGamPoi",
+  vars.to.regress = c("percent.mt", "sex_score"),
+  vst.flavor = "v2",
+  return.only.var.genes = FALSE,
+  verbose = FALSE
+)
+
+
+# 5. Dimensionality Reduction and Batch Effect Correction (Harmony)
+
+combined <- RunPCA(combined, npcs = 50, features = VariableFeatures(combined), verbose = FALSE)
+
+# Integrate datasets across conditions
+combined <- RunHarmony(
+  object = combined,
+  group.by.vars = "group",
+  reduction.use = "pca",
+  reduction.save = "harmony", 
+  dims.use = 1:20, 
+  theta = 2 
+)
+
+# Build neighbors and clusters on the Harmony embeddings
+combined <- RunUMAP(combined, reduction = "harmony", dims = 1:20)
+combined <- FindNeighbors(combined, reduction = "harmony", dims = 1:20)
+combined <- FindClusters(combined, resolution = CLUSTERING_RES)
+
+
+# 6. Global Cell Type Annotation
+
+cell_type_dict <- c(
+  "0"  = "Resting Chondrocytes", 
+  "1"  = "Early Osteoblasts", 
+  "2"  = "Immune B Cells", 
+  "3"  = "Immature Chondrocytes", 
+  "4"  = "Immature Osteoblasts", 
+  "5"  = "Ligament and tendon cells", 
+  "6"  = "HSPCs",  
+  "7"  = "Endothelial", 
+  "8"  = "Monocytes",
+  "9"  = "Neutrophils", 
+  "10" = "Pre-Hyp Chondrocytes", 
+  "11" = "Erythrocytes", 
+  "12" = "Granulocyte Progenitors", 
+  "13" = "Mature Osteoblast", 
+  "14" = "Osteoclasts",  
+  "15" = "Cycling Cells",  
+  "16" = "Hypertrophic Chondrocyte", 
+  "17" = "Pericytes/VSMC", 
+  "18" = "Erythroblasts", 
+  "19" = "Basophils"
+)
+
+# Rename idents to biological cell types
+combined <- RenameIdents(combined, cell_type_dict)
+combined$cell_type <- Idents(combined)
+
+# Map high-resolution clusters to broad developmental lineages
+lineage_dict <- c(
+  "Resting Chondrocytes"      = "Chondrogenic Lineage",
+  "Immature Chondrocytes"     = "Chondrogenic Lineage",
+  "Pre-Hyp Chondrocytes"      = "Chondrogenic Lineage",
+  "Hypertrophic Chondrocyte"  = "Chondrogenic Lineage",
+  
+  "Early Osteoblasts"         = "Osteogenic Lineage",
+  "Immature Osteoblasts"      = "Osteogenic Lineage",
+  "Mature Osteoblast"         = "Osteogenic Lineage",
+  
+  "Immune B Cells"            = "Hematopoietic & Immune",
+  "HSPCs"                     = "Hematopoietic & Immune",
+  "Monocytes"                 = "Hematopoietic & Immune",
+  "Neutrophils"               = "Hematopoietic & Immune",
+  "Erythrocytes"              = "Hematopoietic & Immune",
+  "Granulocyte Progenitors"   = "Hematopoietic & Immune",
+  "Osteoclasts"               = "Hematopoietic & Immune",
+  "Erythroblasts"             = "Hematopoietic & Immune",
+  "Basophils"                 = "Hematopoietic & Immune",
+  
+  "Endothelial"               = "Endothelial & Mural",
+  "Pericytes/VSMC"            = "Endothelial & Mural",
+  "Ligament and tendon cells" = "Fibrogenic Lineage",
+  "Cycling Cells"             = "Cycling Cells"
+)
+
+combined$broad_lineage <- unname(lineage_dict[as.character(combined$cell_type)])
+
+target_order <- c(
+  "Chondrogenic Lineage", "Osteogenic Lineage", "Cycling Cells",
+  "Fibrogenic Lineage", "Endothelial & Mural", "Hematopoietic & Immune"
+)
+combined$broad_lineage <- factor(combined$broad_lineage, levels = target_order)
+
+p_global_celltypes <- DimPlot(combined, group.by = "cell_type", reduction = "umap", repel = TRUE, label = TRUE) + 
+      ggtitle("Cell Types in Global Landscape") + theme_void()
+
+p_global_lineages <- DimPlot(combined, group.by = "broad_lineage", reduction = "umap", repel = TRUE, label = TRUE) + 
+      ggtitle("Broad Lineages") + theme_void()

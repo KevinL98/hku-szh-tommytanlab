@@ -1,0 +1,134 @@
+# 02_Subsetting_and_HighRes_Clustering.R
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(dplyr)
+  library(ggplot2)
+  library(harmony)
+  library(glmGamPoi)
+})
+
+
+# 1. Pipeline Configuration
+
+# Define the initial broad clusters identified as skeletal lineages
+TARGET_LINEAGE_CLUSTERS <- c('0', '1', '3', '4', '10', '13', '15', '16')
+
+# Define off-target/contaminating clusters identified during the first iteration
+OFF_TARGET_CLUSTERS <- c('5')
+
+RECLUSTERING_RES <- 0.4
+SEED_NUM <- 32
+set.seed(SEED_NUM)
+
+
+# 2. Core Function: Iterative Integration Pipeline
+
+# Encapsulating the repetitive re-integration workflow into a modular function
+RunIterativeIntegration <- function(seurat_obj, res = 0.4, harmony_group = "group") {
+  
+  # Step A: Clean up legacy dimensionality reductions and assays
+  DefaultAssay(seurat_obj) <- "RNA"
+  for (drop_item in c("SCT", "pca", "harmony", "umap")) {
+    seurat_obj[[drop_item]] <- NULL
+  }
+  
+  # Step B: Prepare Seurat v5 layers
+  seurat_obj <- JoinLayers(seurat_obj)
+  
+  # Step C: Re-normalize via SCTransform
+  seurat_obj <- SCTransform(
+    seurat_obj,
+    method = "glmGamPoi",
+    vars.to.regress = c("percent.mt", "sex_score"), 
+    vst.flavor = "v2",
+    return.only.var.genes = FALSE,
+    verbose = FALSE
+  )
+  
+  # Step D: Dimensionality reduction and Batch correction
+  seurat_obj <- RunPCA(seurat_obj, npcs = 50, verbose = FALSE)
+  seurat_obj <- RunHarmony(seurat_obj, group.by.vars = harmony_group, dims.use = 1:20, theta = 2)
+  
+  # Step E: Graph-based clustering
+  seurat_obj <- RunUMAP(seurat_obj, reduction = "harmony", dims = 1:20)
+  seurat_obj <- FindNeighbors(seurat_obj, reduction = "harmony", dims = 1:20)
+  seurat_obj <- FindClusters(seurat_obj, resolution = res)
+  
+  return(seurat_obj)
+}
+
+
+# 3. Iteration 1: Broad Skeletal Lineage Extraction
+
+message("Starting Iteration 1: Subsetting and initial re-integration...")
+
+DefaultAssay(combined) <- "SCT"
+Idents(combined) <- 'SCT_snn_res.0.4'
+
+# Extract target clusters
+combined_2 <- subset(combined, idents = TARGET_LINEAGE_CLUSTERS)
+
+# Execute the integrated pipeline
+combined_2 <- RunIterativeIntegration(combined_2, res = RECLUSTERING_RES)
+
+
+# 4. Iteration 2: Refinement and Off-target Removal
+
+message("Starting Iteration 2: Removing off-target clusters and finalizing manifold...")
+
+DefaultAssay(combined_2) <- "SCT"
+Idents(combined_2) <- 'SCT_snn_res.0.4'
+
+# Remove the identified off-target cluster
+combined_3 <- subset(combined_2, idents = OFF_TARGET_CLUSTERS, invert = TRUE)
+
+# Execute the final integrated pipeline
+combined_3 <- RunIterativeIntegration(combined_3, res = RECLUSTERING_RES)
+
+# Optional: Visualize the final clean manifold in memory
+p_final_umap <- DimPlot(combined_3, reduction = "umap", group.by = "SCT_snn_res.0.4", 
+                        split.by = 'group', pt.size = 1.0, label = TRUE) + 
+                ggtitle("Refined Skeletal Manifold: Ctrl vs Mut")
+print(p_final_umap)
+
+
+# 5. High-Resolution Biological Annotation & Marker Extraction
+
+message("Calculating final cluster markers and applying biological annotations...")
+
+DefaultAssay(combined_3) <- "SCT"
+Idents(combined_3) <- 'SCT_snn_res.0.4'
+
+# Find markers for the refined clusters
+combined_3_markers <- FindAllMarkers(
+  combined_3, 
+  only.pos = TRUE, 
+  min.pct = 0.25, 
+  logfc.threshold = 1, 
+  test.use = "wilcox"
+)
+
+# Filter for significance
+combined_3_markers_sig <- combined_3_markers %>% filter(p_val_adj < 0.05)
+
+# Extract Top 5 markers per cluster for downstream heatmap visualization
+top5_markers <- combined_3_markers_sig %>% 
+  group_by(cluster) %>% 
+  slice_max(n = 5, order_by = avg_log2FC)
+
+# Apply biological identities based on marker profiles
+final_cluster_ids <- c(
+  "0" = "Immature Chondrocytes",
+  "1" = "Articular & Resting Chondrocytes",
+  "2" = "Immature Osteoblasts",
+  "3" = "Pre-Hypertrophic Chondrocytes",
+  "4" = "Hypoxic Chondrocytes",
+  "5" = "Mature Osteoblasts",
+  "6" = "Proliferative Chondrocytes",
+  "7" = "Hypertrophic Chondrocytes"
+)
+
+combined_3 <- RenameIdents(combined_3, final_cluster_ids)
+combined_3$cell_type <- Idents(combined_3)
+

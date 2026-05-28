@@ -1,0 +1,99 @@
+# 03_Differential_Expression_and_Filtering.R
+
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(dplyr)
+  library(stringr)
+  library(MAST)
+})
+
+
+# 1. Global Configuration & Blacklist Definitions
+
+# Statistical thresholds
+LOGFC_THRESH <- 1.0
+PVAL_THRESH  <- 0.05
+MIN_PCT      <- 0.25
+
+# Genotype classification and model parameters
+GENOTYPE_COL <- "group"      # The primary grouping factor representing genotype
+IDENT_MUT    <- "mut"
+IDENT_CTRL   <- "ctrl"
+COVARIATES   <- "sex_score"  # Latent variables to regress out in the MAST GLM
+
+# Biological background blacklists for stringent filtering
+SEX_GENES <- c(
+  "Xist", "Tsix",                                     # Female
+  "Ddx3y", "Eif2s3y", "Uty", "Kdm5d", "Zfy1", "Zfy2", "Prky", # Male
+  "Erdr1", "Mid1", "Kdm6a"                            # Pseudoautosomal
+)
+
+AMBIENT_AND_STRESS_GENES <- c(
+  "S100a8", "S100a9", "Ngp", "Retnlg", "Elane", "Camp", "Ltf", "Mpo", "Prtn3", "Ctsg", # Neutrophil ambient
+  "Hbb-bs", "Hbb-bt", "Hba-a1", "Hba-a2",             # Erythroid ambient
+  "Fos", "Fosb", "Jun", "Junb", "Jund", "Egr1", "Atf3", # Dissociation stress / IEGs
+  "Hspa1a", "Hspa1b"                                  # Heat shock
+)
+
+
+clusters_to_test <- levels(Idents(combined_obj))
+
+deg_list <- list() 
+
+message("Initiating DEG analysis across ", length(clusters_to_test), " clusters...")
+
+for (cluster_name in clusters_to_test) {
+  message(sprintf("[%s] Processing cluster: %s", format(Sys.time(), "%H:%M:%S"), cluster_name))
+  
+  deg_result <- tryCatch({
+    FindMarkers(
+      combined_obj,
+      logfc.threshold = LOGFC_THRESH,
+      min.pct         = MIN_PCT,
+      group.by        = GENOTYPE_COL, 
+      ident.1         = IDENT_MUT,
+      ident.2         = IDENT_CTRL, 
+      test.use        = "MAST",           
+      latent.vars     = COVARIATES,   
+      subset.ident    = cluster_name  
+    )
+  }, error = function(e) {
+    warning(sprintf("Skipped %s due to internal error: %s", cluster_name, e$message))
+    return(NULL)
+  })
+  
+
+  if (!is.null(deg_result) && nrow(deg_result) > 0) {
+    deg_result$gene <- rownames(deg_result)
+    deg_result$Cluster <- cluster_name 
+    
+    deg_result <- deg_result %>% dplyr::select(Cluster, gene, everything())
+    
+    deg_list[[cluster_name]] <- deg_result 
+  } else {
+    message("  -> No significant DEGs detected for this cluster.")
+  }
+}
+
+# 3. Aggregation and Stringent Filtration
+
+message("Aggregating results and applying background filtration...")
+
+all_degs_master <- bind_rows(deg_list) %>% 
+  arrange(Cluster, p_val_adj)
+
+# Filter 1: Statistical significance
+all_degs_master_sig <- all_degs_master %>%
+  filter(
+    p_val_adj < PVAL_THRESH,
+    abs(avg_log2FC) > LOGFC_THRESH
+  )
+
+# Filter 2: Exclusion of technical noise and biological confounders
+all_degs_master_cleaned <- all_degs_master_sig %>%
+  filter(
+    !gene %in% SEX_GENES,
+    !gene %in% AMBIENT_AND_STRESS_GENES
+  )
+
