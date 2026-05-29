@@ -1,0 +1,392 @@
+# 01.global UMAP Plot
+umap1 <- DimPlot(
+  combined,
+  reduction = "umap",
+  group.by = "cell_type",    
+  pt.size = 0.5)
+umap1
+
+# 02.UMAP split Plot
+
+umap2 <- DimPlot(
+  combined,
+  reduction = "umap",
+  group.by = "cell_type",  
+  split.by = "group",  
+  pt.size = 0.5)
+umap2
+
+# 03.UMAP Plot by lineage
+journal_colors <- c(
+  "Osteogenic Lineage"     = "#E64B35",
+  "Chondrogenic Lineage"   = "#3C5488",
+  "Cycling Cells"          = "#00A087",
+  "Fibrogenic Lineage"     = "#E8DCD3",
+  "Endothelial & Mural"    = "#D1E5F0",
+  "Hematopoietic & Immune" = "#EBEBEB"
+)
+
+
+layer_order <- c(
+  "Osteogenic Lineage",     
+  "Chondrogenic Lineage",   
+  "Cycling Cells",          
+  "Fibrogenic Lineage",     
+  "Endothelial & Mural",    
+  "Hematopoietic & Immune"  
+)
+
+umap3 <- DimPlot(
+  combined,
+  reduction = "umap",
+  group.by = "broad_lineage",    
+  cols = journal_colors,
+  pt.size = 0.5,
+  order = layer_order
+) + 
+  ggtitle("Global Microenvironment Landscape")
+umap3
+
+umap4<- DimPlot(
+  combined,
+  reduction = "umap",
+  group.by = "broad_lineage",  
+  cols = journal_colors,
+  split.by = "orig.ident",  
+  pt.size = 0.5,
+  order = layer_order
+) + 
+  ggtitle("Global Microenvironment Landscape Split")
+umap4
+
+# 04. featureplot of global landscape
+
+# Ensure the correct assay is active
+DefaultAssay(combined) <- "RNA"
+
+
+# 1. Chondrogenic Lineage Signatures
+fig_chon_markers <- FeaturePlot(
+  combined,
+  features = c('Sox9', 'Epyc', 'Ihh', 'Col10a1'),
+  ncol = 2,
+  pt.size = 0.25,
+  order = TRUE,
+  min.cutoff = "q05", max.cutoff = "q95"
+)
+
+# 2. Osteogenic Lineage Signatures
+fig_osteo_markers <- FeaturePlot(
+  combined,
+  features = c('Runx2', 'Alpl', 'Ibsp', 'Bglap'),
+  ncol = 2,
+  pt.size = 0.25,
+  order = TRUE,
+  min.cutoff = "q05", max.cutoff = "q95"
+)
+
+# 3. other lineage
+
+# Dictionary of non-target lineages and their gold-standard markers
+non_target_markers <- c(
+  "Endothelial Cells"          = "Pecam1",  
+  "Resting Chon & Tendon"      = "Prg4",    
+  "Tendon & Fibroblasts"       = "Dpt",     
+  "Pericytes"                  = "Rgs5",    
+  "Smooth Muscle Cells (SMCs)" = "Acta2",   
+  "Erythroid Lineage"          = "Hbb-bs",  
+  "B Cells"                    = "Cd79a",   
+  "T Cells"                    = "Cd3e",    
+  "NK Cells"                   = "Nkg7",    
+  "Granulocytes"               = "Ly6g",    
+  "Proliferating Cells"        = "Mki67"    
+)
+
+non_target_plot_list <- list()
+
+for (cell_name in names(non_target_markers)) {
+  
+  gene <- non_target_markers[[cell_name]]
+  
+  p <- FeaturePlot(
+    combined,
+    features = gene,
+    pt.size = 0.25,
+    order = TRUE,
+    min.cutoff = "q05",
+    max.cutoff = "q95"
+  ) +
+    ggtitle(bquote(italic(.(gene)) ~ "-" ~ .(cell_name))) +
+    theme(plot.title = element_text(hjust = 0.5, size = 16))
+  
+  safe_name <- gsub(" |&|\\(|\\)", "_", cell_name)
+  safe_name <- gsub("_+", "_", safe_name)
+  
+  non_target_plot_list[[safe_name]] <- p
+}
+
+fig_nontarget_matrix <- wrap_plots(non_target_plot_list, ncol = 4)
+
+# 05. refined clusters umap
+
+Idents(combined_3) <- 'cell_type'
+
+logical_order <- c(
+  "Immature Chondrocytes",
+  "Proliferative Chondrocytes",
+  "Articular & Resting Chondrocytes",
+  "Pre-Hypertrophic Chondrocytes",
+  "Hypertrophic Chondrocytes",
+  "Hypoxic Chondrocytes",
+  "Immature Osteoblasts",
+  "Mature Osteoblasts"
+)
+
+Idents(combined_3) <- factor(Idents(combined_3), levels = logical_order)
+combined_3$cell_type <- factor(combined_3$cell_type, levels = logical_order)
+
+trajectory_colors <- c(
+  "Immature Chondrocytes"         = "#F39B7F",
+  "Proliferative Chondrocytes"    = "#00A087",
+  "Articular & Resting Chondrocytes" = "#4DBBD5",
+  "Pre-Hypertrophic Chondrocytes" = "#3C5488",
+  "Hypertrophic Chondrocytes"     = "#8491B4",
+  "Hypoxic Chondrocytes"          = "#91D1C2",
+  "Immature Osteoblasts"          = "#E64B35",
+  "Mature Osteoblasts"            = "#B00020"
+)
+
+p_combined3_umap <- DimPlot(
+  combined_3, 
+  reduction = "umap", 
+  cols = trajectory_colors,
+  pt.size = 0.6, 
+  label = FALSE 
+) +
+  ggtitle("combined_3_umap")
+
+p_combined3_umap
+
+# 06. refined clusters umap_split by group
+
+p_combined3_umap_split <- DimPlot(
+  combined_3, 
+  reduction = "umap", 
+  cols = trajectory_colors,
+  pt.size = 0.6, 
+  split.by = "orig.ident",
+  label = FALSE 
+) +
+  ggtitle("combined_3_umap_split")
+
+p_combined3_umap——split
+
+
+# 07. Wnt1 expression in each sample
+
+Wnt1_fp <- FeaturePlot(
+  combined_3,
+  features = "Wnt1",
+  split.by = "group", 
+  keep.scale = "all",
+  pt.size = 0.5,
+  order = TRUE,
+  cols = c("lightgrey", "#B2182B")
+) & 
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    axis.line = element_blank(),
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8)
+  )
+
+Wnt1_fp
+
+# 07. AddmolecularScore of osteogenic and chondrogenic lineage
+
+DefaultAssay(combined_3) <- "RNA"
+
+lineage_genes <- list(
+  Osteo   = c("Sp7", "Alpl", "Ibsp", "Ifitm5", "Bglap"),
+  Chondro = c("Acan", "Col2a1", "Sox9", "Fgfr3")
+)
+
+combined_3 <- AddModuleScore(combined_3, features = list(lineage_genes$Osteo), name = "Osteo_Score")
+combined_3 <- AddModuleScore(combined_3, features = list(lineage_genes$Chondro), name = "Chondro_Score")
+
+custom_colors <- scale_color_gradientn(
+  colors = c("#e0e0e0", "#a6a6d9", "#5e4fa2", "#3a0088"), 
+  na.value = "lightgrey"
+)
+
+custom_theme <- theme_classic(base_size = 14) +
+  theme(
+    axis.line = element_line(color = "black", linewidth = 0.8),
+    axis.text = element_text(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    strip.text = element_text(size = 16, face = "bold"),
+    strip.background = element_blank()
+  )
+
+PlotLineageScore <- function(seurat_obj, feature_name, main_title, gene_list, split_var = "orig.ident") {
+
+  p <- FeaturePlot(seurat_obj, features = feature_name, split.by = split_var, pt.size = 0.5) & 
+    custom_colors & 
+    custom_theme
+
+  genes_str <- paste(gene_list, collapse = ", ")
+  
+  p <- p + plot_annotation(
+    title = main_title,
+    subtitle = bquote(italic(.(genes_str))), 
+    theme = theme(
+      plot.title = element_text(size = 20, face = "bold", hjust = 0),
+      plot.subtitle = element_text(size = 16, hjust = 0)
+    )
+  )
+  
+  return(p)
+}
+
+p_osteo <- PlotLineageScore(
+  seurat_obj   = combined_3, 
+  feature_name = "Osteo_Score1", 
+  main_title   = "Osteogenic", 
+  gene_list    = lineage_genes$Osteo
+)
+
+p_chondro <- PlotLineageScore(
+  seurat_obj   = combined_3, 
+  feature_name = "Chondro_Score1", 
+  main_title   = "Chondrogenic", 
+  gene_list    = lineage_genes$Chondro
+)
+
+p_osteo
+p_chondro
+
+# 08. Key genes expression level of each sample in Hypertrophic Chondrocytes cluster
+
+hc_obj <- subset(
+    combined_3,
+    subset = cell_type == "Hypertrophic Chondrocytes"
+)
+
+marker_genes <- c(
+    "Wnt1", "Tcf7l2", "Frzb",
+    "Ihh", "Bmp2", "Dlx5" 
+)
+
+p_vln_list <- VlnPlot(
+    hc_obj,
+    features = marker_genes,
+    group.by = "orig.ident", 
+    combine = FALSE
+)
+
+p_vln_list <- lapply(p_vln_list, function(p) {
+    p + theme(
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(), 
+        plot.title = element_text(face = "bold.italic", hjust = 0.5, size = 15), 
+        axis.text.x = element_text(face = "bold", color = "black")
+    )
+})
+
+grid_plots <- wrap_plots(p_vln_list, ncol = 3) + 
+    plot_layout(guides = "collect") & 
+    theme(legend.position = "bottom", legend.title = element_blank())
+
+
+y_axis_label <- ggplot() +
+    annotate("text", x = 0, y = 0, label = "Expression Level", angle = 90, size = 6, fontface = "bold") +
+    theme_void()
+
+p_vln_final <- y_axis_label + grid_plots + plot_layout(widths = c(0.03, 1))
+
+p_vln_final
+
+
+# 08. Go plot
+
+all_minuslog10p <- c(
+  -log10(as.numeric(DAVID_Wnt1_Down_BP$`P-Value`)),
+  -log10(as.numeric(DAVID_Wnt1_Up_BP$`P-Value`)),
+  -log10(as.numeric(DAVID_Wnt1_Down_Pathway$`P-Value`)),
+  -log10(as.numeric(DAVID_Wnt1_Up_Pathway$`P-Value`))
+)
+global_color_limits <- range(all_minuslog10p, na.rm = TRUE)
+
+all_counts <- c(
+  as.numeric(DAVID_Wnt1_Down_BP$Count),
+  as.numeric(DAVID_Wnt1_Up_BP$Count),
+  as.numeric(DAVID_Wnt1_Down_Pathway$Count),
+  as.numeric(DAVID_Wnt1_Up_Pathway$Count)
+)
+global_size_limits <- range(all_counts, na.rm = TRUE)
+
+PlotEnrichmentDot <- function(df, title = "", top_n = 10, wrap_width = 20) {
+  
+  plot_df <- df %>%
+    mutate(
+      Count           = as.numeric(Count),
+      P_Value         = as.numeric(`P-Value`),
+      Fold_Enrichment = as.numeric(`Fold Enrichment`),
+      minusLog10P     = -log10(P_Value),
+      Term            = str_wrap(Term, width = wrap_width)
+    ) %>%
+    arrange(P_Value) %>%
+    slice_head(n = top_n)
+  
+  plot_df$Term <- factor(plot_df$Term, levels = rev(plot_df$Term))
+  
+  p <- ggplot(plot_df, aes(x = minusLog10P, y = Term)) +
+    geom_point(aes(size = Count, color = minusLog10P), alpha = 0.92) +
+    scale_color_gradient(low = "#D1E5F0", high = "#B2182B", limits = global_color_limits) +
+    scale_size_continuous(range = c(1.5, 5.5), limits = global_size_limits) +
+    theme_classic(base_size = 10) +
+    labs(
+      title = title,
+      x     = expression(-log[10](italic(P))),
+      y     = NULL,
+      color = expression(-log[10](italic(P))),
+      size  = "Count"
+    ) +
+    theme(
+      plot.title       = element_text(hjust = 0.5, face = "bold", size = 11),
+      axis.text.y      = element_text(size = 13, colour = "black", lineheight = 0.72),
+      axis.text.x      = element_text(size = 8, colour = "black"),
+      axis.title.x     = element_text(face = "bold", size = 9),
+      panel.grid       = element_blank(),
+      plot.margin      = margin(t = 5, r = 5, b = 5, l = 5),
+
+      legend.position  = "bottom",
+      legend.box       = "horizontal",
+      legend.title     = element_text(size = 8, face = "bold"),
+      legend.text      = element_text(size = 7),
+      legend.spacing.x = unit(0.2, "cm")
+    ) +
+    guides(
+      color = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3.2, "cm"), barheight = unit(0.22, "cm")),
+      size  = guide_legend(title.position = "top", title.hjust = 0.5, nrow = 1, keywidth = unit(0.35, "cm"))
+    )
+  
+  return(p)
+}
+
+p_up_bp        <- PlotEnrichmentDot(DAVID_Wnt1_Up_BP, title = "Upregulated BP")
+p_down_bp      <- PlotEnrichmentDot(DAVID_Wnt1_Down_BP, title = "Downregulated BP")
+p_up_pathway   <- PlotEnrichmentDot(DAVID_Wnt1_Up_Pathway, title = "Upregulated Pathways")
+p_down_pathway <- PlotEnrichmentDot(DAVID_Wnt1_Down_Pathway, title = "Downregulated Pathways")
+
+final_enrichment_plot <- (p_up_bp | p_down_bp | p_up_pathway | p_down_pathway) +
+  plot_layout(ncol = 4, guides = "collect") &
+  theme(
+    legend.position      = "bottom",
+    legend.box           = "horizontal",
+    legend.justification = "center"
+  )
+
+final_enrichment_plot
