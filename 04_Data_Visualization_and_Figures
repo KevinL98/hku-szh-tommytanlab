@@ -1,19 +1,46 @@
 # 01.global UMAP Plot
-umap1 <- DimPlot(
-  combined,
-  reduction = "umap",
-  group.by = "cell_type",    
-  pt.size = 0.5)
+
+umap1<-DimPlot(combined, 
+        reduction = "umap", 
+        group.by = "cell_type", 
+        pt.size = 0.25,
+        label = FALSE,
+        label.size = 5)+
+    theme_bw(base_size = 16) +
+    theme(plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
+        legend.position = "right",
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        axis.title = element_text(size = 16),
+        axis.text = element_text(size = 14),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white", colour = NA),
+        plot.background = element_rect(fill = "white", colour = NA)
+  ) +
+guides(color = guide_legend(override.aes = list(size = 5))) 
+
 umap1
 
 # 02.UMAP split Plot
 
-umap2 <- DimPlot(
-  combined,
-  reduction = "umap",
-  group.by = "cell_type",  
-  split.by = "group",  
-  pt.size = 0.5)
+umap2<-DimPlot(combined, 
+        reduction = "umap", 
+        group.by = "cell_type",
+        split.by = "orig.ident",
+        pt.size = 0.25,
+        label = FALSE,
+        label.size = 6,
+        ncol = 2)+
+    NoLegend() + 
+    theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 16, face = "bold"),
+        axis.text = element_text(size = 14),
+        strip.text = element_text(size = 16, face = "bold"),
+        strip.background = element_rect(fill = "lightgrey", colour = "black"),
+        plot.margin = margin(10, 10, 10, 10)
+)
+
 umap2
 
 # 03.UMAP Plot by lineage
@@ -37,26 +64,54 @@ layer_order <- c(
 )
 
 umap3 <- DimPlot(
-  combined,
-  reduction = "umap",
-  group.by = "broad_lineage",    
+  combined, 
+  reduction = "umap", 
+  group.by = "broad_lineage", 
   cols = journal_colors,
-  pt.size = 0.5,
-  order = layer_order
-) + 
-  ggtitle("Global Microenvironment Landscape")
+  order = layer_order, 
+  pt.size = 0.25,
+  label = FALSE
+) +
+  theme_bw(base_size = 16) + 
+  theme(
+    plot.title       = element_text(size = 20, face = "bold", hjust = 0.5),
+    legend.position  = "right",
+    legend.text      = element_text(size = 14),
+    legend.title     = element_text(size = 16, face = "bold"),
+    legend.key       = element_blank(),
+    axis.title       = element_text(size = 16, face = "bold"),
+    axis.text        = element_text(size = 14),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "white", colour = "black"),
+    plot.background  = element_rect(fill = "white", colour = NA)
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 5))) 
 umap3
 
-umap4<- DimPlot(
-  combined,
-  reduction = "umap",
-  group.by = "broad_lineage",  
-  cols = journal_colors,
-  split.by = "orig.ident",  
-  pt.size = 0.5,
-  order = layer_order
-) + 
-  ggtitle("Global Microenvironment Landscape Split")
+umap4<-DimPlot(
+  combined, 
+  reduction = "umap", 
+  group.by = "broad_lineage",
+  split.by = "orig.ident", 
+  cols = journal_colors, 
+  order = z_axis_order,
+  pt.size = 0.25,
+  label = FALSE
+)+NoLegend() + 
+theme_bw(base_size = 16) +
+  theme(
+    plot.title       = element_text(size = 18, face = "bold", hjust = 0.5),
+    axis.title       = element_text(size = 16, face = "bold"),
+    axis.text        = element_text(size = 14),
+    strip.text       = element_text(size = 16, face = "bold"),
+    strip.background = element_rect(fill = "lightgrey", colour = "black"), 
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "white", colour = "black"),
+    plot.margin      = margin(10, 10, 10, 10),
+    legend.position  = "none" 
+  )
 umap4
 
 # 04. featureplot of global landscape
